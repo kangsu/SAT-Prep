@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SAT Practice Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+
+  <main class="app-shell">
+    <header class="hero">
+      <p class="eyebrow">SAT Prep Workspace</p>
+      <h1>SAT Practice Studio</h1>
+      <p class="hero-copy">
+        Practice by question type, track right/wrong history, and keep progress saved in your browser.
+      </p>
+      <div class="stat-row">
+        <div class="stat-pill"><span id="stat-total-questions">0</span> questions</div>
+        <div class="stat-pill"><span id="stat-attempted">0</span> attempted</div>
+        <div class="stat-pill"><span id="stat-accuracy">0%</span> accuracy</div>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Practice Session</h2>
+        <p>Choose subject, tags, and how many questions to run.</p>
+      </div>
+
+      <form id="session-form" class="session-form">
+        <label>
+          Subject
+          <select id="session-subject" name="subject">
+            <option value="all">All</option>
+            <option value="english">English</option>
+            <option value="math">Math</option>
+          </select>
+        </label>
+
+        <label>
+          Status Filter
+          <select id="session-status" name="status">
+            <option value="all">All</option>
+            <option value="unattempted">Unattempted only</option>
+            <option value="incorrect">Last attempt was wrong</option>
+            <option value="correct">Last attempt was right</option>
+            <option value="everWrong">Ever got wrong</option>
+          </select>
+        </label>
+
+        <label>
+          Domain
+          <select id="session-domain" name="domain">
+            <option value="all">All domains</option>
+          </select>
+        </label>
+
+        <label>
+          Skill
+          <select id="session-skill" name="skill">
+            <option value="all">All skills</option>
+          </select>
+        </label>
+
+        <label>
+          Question Count
+          <input id="session-count" name="count" type="number" value="10" min="1" max="100">
+        </label>
+
+        <fieldset class="type-selector">
+          <legend>Question Types</legend>
+          <div id="type-checkboxes" class="type-grid"></div>
+        </fieldset>
+
+        <button class="btn btn-primary" type="submit">Start Session</button>
+      </form>
+
+      <p id="session-message" class="callout"></p>
+
+      <article id="question-card" class="question-card hidden">
+        <div class="question-top">
+          <div>
+            <p id="question-counter" class="meta"></p>
+            <h3 id="question-title"></h3>
+          </div>
+          <div id="question-tags" class="chip-row"></div>
+        </div>
+
+        <div id="prompt-view" class="prompt-view"></div>
+
+        <div class="answer-zone">
+          <div id="choice-list" class="choice-list"></div>
+          <input id="free-answer" type="text" placeholder="Type your answer here (if not multiple choice)">
+          <div class="action-row">
+            <button id="submit-answer-btn" class="btn btn-primary" type="button">Check Answer</button>
+            <button id="mark-correct-btn" class="btn hidden" type="button">Mark Correct</button>
+            <button id="mark-wrong-btn" class="btn hidden" type="button">Mark Wrong</button>
+            <button id="reveal-answer-btn" class="btn hidden" type="button">Show Answer</button>
+            <button id="next-question-btn" class="btn btn-secondary hidden" type="button">Next Question</button>
+          </div>
+        </div>
+
+        <p id="feedback" class="feedback"></p>
+        <p id="hint-line" class="hint-line"></p>
+        <div id="answer-panel" class="answer-panel hidden"></div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Progress Dashboard</h2>
+        <p>Track overall performance and quickly spot weak domains and skills.</p>
+      </div>
+
+      <div class="progress-grid">
+        <div class="progress-card">
+          <p class="meta">Attempted</p>
+          <h3 id="progress-attempted">0</h3>
+        </div>
+        <div class="progress-card">
+          <p class="meta">Correct</p>
+          <h3 id="progress-correct">0</h3>
+        </div>
+        <div class="progress-card">
+          <p class="meta">Incorrect</p>
+          <h3 id="progress-incorrect">0</h3>
+        </div>
+        <div class="progress-card">
+          <p class="meta">Need Review (ever wrong)</p>
+          <h3 id="progress-review">0</h3>
+        </div>
+      </div>
+
+      <div class="insight-grid">
+        <article class="insight-card">
+          <div class="panel-head compact">
+            <h3>Domain Performance</h3>
+            <p>Sorted by lowest accuracy first.</p>
+          </div>
+          <div class="table-wrap compact-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Domain</th>
+                  <th>Attempts</th>
+                  <th>Correct</th>
+                  <th>Wrong</th>
+                  <th>Accuracy</th>
+                </tr>
+              </thead>
+              <tbody id="domain-progress-body"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="insight-card">
+          <div class="panel-head compact">
+            <h3>Skill Performance</h3>
+            <p>Use this to choose targeted practice sessions.</p>
+          </div>
+          <div class="table-wrap compact-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Skill</th>
+                  <th>Attempts</th>
+                  <th>Correct</th>
+                  <th>Wrong</th>
+                  <th>Accuracy</th>
+                </tr>
+              </thead>
+              <tbody id="skill-progress-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+
+      <div class="panel-head compact">
+        <h3>Recent Question History</h3>
+        <p>Most recently attempted questions.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Attempts</th>
+              <th>Correct</th>
+              <th>Wrong</th>
+              <th>Last Result</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody id="progress-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel admin-shell">
+      <details id="admin-tools">
+        <summary class="admin-toggle">
+          <div>
+            <h2>Admin / Metadata Tools</h2>
+            <p>Question editing, bulk metadata operations, and data management.</p>
+          </div>
+        </summary>
+
+        <div class="admin-body">
+          <section class="panel-sub">
+            <div class="panel-head">
+              <h3>Question Library</h3>
+              <p>Edit metadata, answers, hints, and types.</p>
+            </div>
+
+            <div class="toolbar">
+              <input id="library-search" type="search" placeholder="Search by id, type, source, or page">
+              <select id="library-status-filter">
+                <option value="all">All statuses</option>
+                <option value="unattempted">Unattempted</option>
+                <option value="incorrect">Last wrong</option>
+                <option value="correct">Last right</option>
+                <option value="everWrong">Ever wrong</option>
+              </select>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Subject</th>
+                    <th>Source</th>
+                    <th>Types</th>
+                    <th>Domain</th>
+                    <th>Skill</th>
+                    <th>Status</th>
+                    <th>Attempts</th>
+                    <th>Active</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="library-body"></tbody>
+              </table>
+            </div>
+            <p id="library-footnote" class="footnote"></p>
+          </section>
+
+          <section class="panel-sub dual">
+            <div>
+              <div class="panel-head compact">
+                <h3>Edit Question</h3>
+                <p>Set answer keys, hints, type tags, domain, and skill.</p>
+              </div>
+              <form id="question-form" class="stack-form">
+                <input id="form-question-id" type="hidden">
+                <label>
+                  Subject
+                  <select id="form-subject" required>
+                    <option value="english">English</option>
+                    <option value="math">Math</option>
+                  </select>
+                </label>
+
+                <label>
+                  PDF Source
+                  <select id="form-source" required></select>
+                </label>
+
+                <label>
+                  Start Page
+                  <input id="form-start-page" type="number" min="1" required>
+                </label>
+
+                <label>
+                  End Page
+                  <input id="form-end-page" type="number" min="1" required>
+                </label>
+
+                <label>
+                  Domain
+                  <input id="form-domain" type="text" placeholder="e.g., Information and Ideas">
+                </label>
+
+                <label>
+                  Skill
+                  <input id="form-skill" type="text" placeholder="e.g., Form, Structure, and Sense">
+                </label>
+
+                <label>
+                  Type Tags (comma-separated)
+                  <input id="form-types" type="text" placeholder="e.g., algebra, word-problem, no-calculator">
+                </label>
+
+                <label>
+                  Choices (one per line, optional)
+                  <textarea id="form-choices" rows="4" placeholder="A) ...&#10;B) ...&#10;C) ..."></textarea>
+                </label>
+
+                <label>
+                  Correct Answer
+                  <input id="form-correct-answer" type="text" placeholder="e.g., B or 24 | twenty four">
+                </label>
+
+                <label>
+                  Hint
+                  <textarea id="form-hint" rows="2"></textarea>
+                </label>
+
+                <label>
+                  Answer / Explanation
+                  <textarea id="form-answer" rows="4"></textarea>
+                </label>
+
+                <label>
+                  Notes
+                  <textarea id="form-notes" rows="2"></textarea>
+                </label>
+
+                <label class="inline-check">
+                  <input id="form-active" type="checkbox" checked>
+                  Include in sessions
+                </label>
+
+                <div class="action-row">
+                  <button class="btn btn-primary" type="submit">Save Question</button>
+                  <button id="clear-form-btn" class="btn" type="button">Clear</button>
+                </div>
+              </form>
+            </div>
+
+            <div>
+              <div class="panel-head compact">
+                <h3>Bulk Tools</h3>
+                <p>Create questions by page range and set source paths.</p>
+              </div>
+
+              <form id="bulk-form" class="stack-form">
+                <label>
+                  PDF Source
+                  <select id="bulk-source"></select>
+                </label>
+                <label>
+                  Start Page
+                  <input id="bulk-start" type="number" min="1" required>
+                </label>
+                <label>
+                  End Page
+                  <input id="bulk-end" type="number" min="1" required>
+                </label>
+                <label>
+                  Subject
+                  <select id="bulk-subject">
+                    <option value="english">English</option>
+                    <option value="math">Math</option>
+                  </select>
+                </label>
+                <label>
+                  Type Tags (comma-separated)
+                  <input id="bulk-types" type="text" value="mixed">
+                </label>
+                <div class="action-row">
+                  <button class="btn btn-primary" type="submit">Create Missing Questions</button>
+                  <button id="bulk-apply-tags-btn" class="btn" type="button">Apply Tags To Range</button>
+                </div>
+              </form>
+              <div class="action-row">
+                <button id="parse-pdf-btn" class="btn btn-secondary" type="button">Parse PDFs For Domain/Skill + Ranges</button>
+              </div>
+
+              <p id="bulk-message" class="callout"></p>
+
+              <h3>PDF Sources</h3>
+              <form id="source-form" class="stack-form">
+                <div id="source-list"></div>
+                <button class="btn btn-primary" type="submit">Save Source Settings</button>
+              </form>
+
+              <h3>Data Controls</h3>
+              <div class="action-row wrap">
+                <button id="export-btn" class="btn" type="button">Export Data</button>
+                <label class="btn file-btn">
+                  Import Data
+                  <input id="import-input" type="file" accept=".json">
+                </label>
+                <button id="reset-progress-btn" class="btn danger" type="button">Reset Progress</button>
+                <button id="reset-all-btn" class="btn danger" type="button">Reset All Data</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" referrerpolicy="no-referrer"></script>
+  <script src="app.js"></script>
+</body>
+</html>
