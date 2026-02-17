@@ -1602,7 +1602,9 @@ function normalizePath(path) {
   if (/^https?:\/\//i.test(p)) return p;
   if (p.startsWith("/")) return p;
   if (p.startsWith("./") || p.startsWith("../")) return p;
-  return `/${p}`;
+  // Keep app asset paths relative so repo-based hosts (for example GitHub Pages)
+  // resolve to /<repo>/assets/... instead of domain-root /assets/...
+  return p;
 }
 function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function escapeHtml(text) { return String(text).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;"); }
