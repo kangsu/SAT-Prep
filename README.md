@@ -38,7 +38,9 @@ If your files are somewhere else, update them in the **PDF Sources** section of 
 - The app auto-seeds one question entry per PDF page (using the default page counts).
 - These start with generic tags (`mixed`, `auto-imported`) and no answer keys.
 - Use **Bulk Tools** and **Edit Question** to add real tags/answers/hints.
-- Click **Parse PDFs For Domain/Skill + Ranges** in **Bulk Tools** to auto-detect:
+- The app automatically parses PDFs when it has no parse record yet, sees unparsed page entries, or detects that a saved PDF source changed.
+- Click **Parse PDFs For Domain/Skill + Ranges** in **Bulk Tools** only when you want to force a full reparse.
+- PDF parsing detects:
   - question start/end pages
   - `Domain`
   - `Skill`

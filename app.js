@@ -3,7 +3,8 @@
 const STORAGE = {
   sources: "sat-prep.sources.v1",
   library: "sat-prep.library.v1",
-  progress: "sat-prep.progress.v1"
+  progress: "sat-prep.progress.v1",
+  parseMeta: "sat-prep.parseMeta.v1"
 };
 
 const DEFAULT_SOURCES = [
@@ -65,7 +66,7 @@ const DOMAIN_SKILL_MAP = {
 
 const PDF_WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const ANSWER_MASK_UPWARD_OFFSET_PX = 22;
-const state = { sources: [], library: [], index: new Map(), progress: {}, session: null, promptToken: 0 };
+const state = { sources: [], library: [], index: new Map(), progress: {}, parseMeta: {}, session: null, promptToken: 0, parsing: false };
 const pdfDocCache = new Map();
 const ui = {};
 
@@ -76,6 +77,7 @@ function init() {
   loadState();
   wireEvents();
   renderAll();
+  void autoParseSourcesIfNeeded("startup");
 }
 
 function bindUi() {
@@ -134,9 +136,12 @@ function wireEvents() {
 function loadState() {
   state.sources = hydrateSources(loadJson(STORAGE.sources, []));
   state.library = hydrateLibrary(loadJson(STORAGE.library, []));
+  state.parseMeta = hydrateParseMeta(loadJson(STORAGE.parseMeta, {}));
   if (!state.library.length) {
     state.library = seedFromSources(state.sources);
+    state.parseMeta = {};
     saveLibrary();
+    saveParseMeta();
   }
   state.progress = hydrateProgress(loadJson(STORAGE.progress, {}));
   sortLibrary();
@@ -157,6 +162,7 @@ function renderAll() {
 function saveSourcesJson() { localStorage.setItem(STORAGE.sources, JSON.stringify(state.sources)); }
 function saveLibrary() { localStorage.setItem(STORAGE.library, JSON.stringify(state.library)); }
 function saveProgress() { localStorage.setItem(STORAGE.progress, JSON.stringify(state.progress)); }
+function saveParseMeta() { localStorage.setItem(STORAGE.parseMeta, JSON.stringify(state.parseMeta)); }
 
 function loadJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || "null") ?? fallback; }
@@ -934,34 +940,97 @@ function bulkApplyTags() {
   setBulkMsg(`Updated ${updated} questions in range.`);
 }
 
+async function autoParseSourcesIfNeeded(reason) {
+  if (state.parsing || !state.sources.length) return;
+  const toParse = [];
+
+  for (const source of state.sources) {
+    const decision = await getSourceParseDecision(source);
+    if (decision.needsParse) {
+      toParse.push(decision);
+    }
+  }
+
+  if (!toParse.length) return;
+
+  const signatures = new Map(toParse.map((decision) => [decision.source.id, decision.signature]));
+  const labels = toParse.map((decision) => `${decision.source.name} (${decision.reason})`).join(", ");
+  setBulkMsg(`Automatic PDF parse needed: ${labels}.`);
+  await parseSources(toParse.map((decision) => decision.source), { auto: true, reason, signatures });
+}
+
+async function getSourceParseDecision(source) {
+  const questions = state.library.filter((q) => q.sourceId === source.id);
+  const signature = await readSourceSignature(source);
+  const meta = state.parseMeta[source.id] || null;
+
+  if (!questions.length) {
+    return { source, signature, needsParse: true, reason: "no saved questions" };
+  }
+
+  if (!meta) {
+    const reason = sourceLooksSeeded(source, questions) ? "not parsed yet" : "no parse record";
+    return { source, signature, needsParse: true, reason };
+  }
+
+  if (!sourceSignatureMatches(meta, source, signature)) {
+    return { source, signature, needsParse: true, reason: "PDF changed" };
+  }
+
+  return { source, signature, needsParse: false };
+}
+
 async function parseAllSources() {
+  await parseSources(state.sources, { auto: false });
+}
+
+async function parseSources(sources, options = {}) {
+  const list = [...sources].filter(Boolean);
+  if (!list.length) {
+    setBulkMsg("No PDF sources are configured.");
+    return;
+  }
   if (!ensurePdfJs()) {
     setBulkMsg("PDF parser is unavailable. Check your internet connection and reload.");
     return;
   }
+  if (state.parsing) {
+    setBulkMsg("PDF parsing is already running.");
+    return;
+  }
+
+  const modeLabel = options.auto ? "Automatic PDF parsing" : "PDF parsing";
+  const signatures = options.signatures instanceof Map ? options.signatures : new Map();
+  state.parsing = true;
   ui.parsePdfBtn.disabled = true;
   try {
     const parsedAll = [];
-    for (const source of state.sources) {
-      setBulkMsg(`Parsing ${source.name}...`);
+    const parsedMeta = {};
+    for (const source of list) {
+      setBulkMsg(`${options.auto ? "Auto-parsing" : "Parsing"} ${source.name}...`);
       const parsed = await parseSourceQuestions(source);
       parsedAll.push(...parsed);
+      const signature = await readSourceSignature(source, { includePdfInfo: true, previous: signatures.get(source.id) });
+      parsedMeta[source.id] = buildParseMeta(source, signature, parsed.length);
     }
     if (!parsedAll.length) {
       setBulkMsg("No question markers were detected in the PDFs.");
       return;
     }
     state.library = mergeParsedQuestions(parsedAll);
+    state.parseMeta = { ...state.parseMeta, ...parsedMeta };
     state.session = null;
     sortLibrary();
     rebuildIndex();
     saveSourcesJson();
     saveLibrary();
+    saveParseMeta();
     renderAll();
-    setBulkMsg(`PDF parsing complete. Loaded ${parsedAll.length} questions with page ranges/domain/skill.`);
+    setBulkMsg(`${modeLabel} complete. Loaded ${parsedAll.length} questions with page ranges/domain/skill.`);
   } catch (error) {
-    setBulkMsg(`PDF parsing failed: ${error.message}`);
+    setBulkMsg(`${modeLabel} failed: ${error.message}`);
   } finally {
+    state.parsing = false;
     ui.parsePdfBtn.disabled = false;
   }
 }
@@ -1234,6 +1303,122 @@ function mergeParsedQuestions(parsedQuestions) {
   return merged;
 }
 
+function sourceLooksSeeded(source, questions) {
+  if (!questions.length) return true;
+  const pageCount = clampInt(source.pageCount, 1, Number.MAX_SAFE_INTEGER, questions.length);
+  if (questions.length !== pageCount) return false;
+  return questions.every((q) => {
+    const startPage = q.startPage || q.page;
+    const endPage = q.endPage || q.page;
+    return q.page === startPage
+      && startPage === endPage
+      && q.questionNumber == null
+      && !q.domain
+      && !q.skill
+      && q.types.includes("auto-imported")
+      && /auto-imported from pdf page/i.test(q.notes || "");
+  });
+}
+
+function sourceSignatureMatches(meta, source, signature) {
+  if (!meta) return false;
+  const normalizedPath = signature.normalizedPath || normalizePath(source.path);
+  if (meta.normalizedPath !== normalizedPath) return false;
+  if (meta.subject !== source.subject) return false;
+
+  const keys = ["etag", "lastModified", "contentLength", "fingerprint", "numPages"];
+  const availableKeys = keys.filter((key) => hasSignatureValue(signature[key]));
+  if (!availableKeys.length) {
+    return meta.path === source.path;
+  }
+  return availableKeys.every((key) => String(meta[key] ?? "") === String(signature[key] ?? ""));
+}
+
+function hasSignatureValue(value) {
+  return value !== undefined && value !== null && String(value) !== "";
+}
+
+async function readSourceSignature(source, options = {}) {
+  const normalizedPath = normalizePath(source.path);
+  const signature = {
+    path: source.path,
+    normalizedPath,
+    subject: source.subject,
+    pageCount: source.pageCount,
+    lastModified: "",
+    contentLength: "",
+    etag: "",
+    fingerprint: "",
+    numPages: null
+  };
+
+  const previous = options.previous || {};
+  if (previous.normalizedPath === normalizedPath) {
+    for (const key of ["lastModified", "contentLength", "etag"]) {
+      if (previous[key]) signature[key] = previous[key];
+    }
+  }
+
+  if (normalizedPath && (!signature.lastModified && !signature.contentLength && !signature.etag)) {
+    const headers = await readPdfHeaders(normalizedPath);
+    signature.lastModified = headers.lastModified || "";
+    signature.contentLength = headers.contentLength || "";
+    signature.etag = headers.etag || "";
+  }
+
+  if (normalizedPath && (options.includePdfInfo || !hasHttpSignature(signature))) {
+    try {
+      const doc = await loadPdfDocument(source.path);
+      signature.numPages = doc.numPages;
+      signature.fingerprint = pdfFingerprint(doc);
+    } catch (error) {
+      signature.readError = error.message;
+    }
+  }
+
+  return signature;
+}
+
+async function readPdfHeaders(path) {
+  if (!window.fetch) return {};
+  try {
+    const response = await fetch(path, { method: "HEAD", cache: "no-store" });
+    if (!response.ok) return {};
+    return {
+      lastModified: response.headers.get("last-modified") || "",
+      contentLength: response.headers.get("content-length") || "",
+      etag: response.headers.get("etag") || ""
+    };
+  } catch {
+    return {};
+  }
+}
+
+function hasHttpSignature(signature) {
+  return Boolean(signature.lastModified || signature.contentLength || signature.etag);
+}
+
+function pdfFingerprint(doc) {
+  const fingerprints = Array.isArray(doc?.fingerprints) ? doc.fingerprints : [];
+  return fingerprints.filter(Boolean).join("|");
+}
+
+function buildParseMeta(source, signature, questionCount) {
+  return {
+    path: source.path,
+    normalizedPath: signature.normalizedPath || normalizePath(source.path),
+    subject: source.subject,
+    pageCount: source.pageCount,
+    lastModified: signature.lastModified || "",
+    contentLength: signature.contentLength || "",
+    etag: signature.etag || "",
+    fingerprint: signature.fingerprint || "",
+    numPages: signature.numPages || null,
+    questionCount: clampInt(questionCount, 0, Number.MAX_SAFE_INTEGER, 0),
+    parsedAt: new Date().toISOString()
+  };
+}
+
 function saveSources(event) {
   event.preventDefault();
   for (const box of ui.sourceList.querySelectorAll("[data-source-id]")) {
@@ -1247,7 +1432,8 @@ function saveSources(event) {
   saveSourcesJson();
   renderSourceSelects();
   renderCurrentQuestion();
-  setBulkMsg("Source settings saved.");
+  setBulkMsg("Source settings saved. Checking whether PDFs need parsing...");
+  void autoParseSourcesIfNeeded("source settings saved");
 }
 
 function renderProgress() {
@@ -1339,7 +1525,7 @@ function renderPerformanceBreakdown(body, stats, emptyText) {
 }
 
 function exportData() {
-  const payload = { version: 1, exportedAt: new Date().toISOString(), sources: state.sources, library: state.library, progress: state.progress };
+  const payload = { version: 1, exportedAt: new Date().toISOString(), sources: state.sources, library: state.library, progress: state.progress, parseMeta: state.parseMeta };
   downloadJson(`sat-prep-export-${stamp()}.json`, payload);
   setBulkMsg("Export complete.");
 }
@@ -1352,14 +1538,20 @@ async function importData(event) {
     state.sources = hydrateSources(payload.sources || []);
     state.library = hydrateLibrary(payload.library || []);
     state.progress = hydrateProgress(payload.progress || {});
-    if (!state.library.length) state.library = seedFromSources(state.sources);
+    state.parseMeta = hydrateParseMeta(payload.parseMeta || {});
+    if (!state.library.length) {
+      state.library = seedFromSources(state.sources);
+      state.parseMeta = {};
+    }
     sortLibrary();
     rebuildIndex();
     saveSourcesJson();
     saveLibrary();
     saveProgress();
+    saveParseMeta();
     renderAll();
     setBulkMsg("Import complete.");
+    void autoParseSourcesIfNeeded("import");
   } catch (err) {
     setBulkMsg(`Import failed: ${err.message}`);
   } finally {
@@ -1382,18 +1574,22 @@ function resetAll() {
   localStorage.removeItem(STORAGE.sources);
   localStorage.removeItem(STORAGE.library);
   localStorage.removeItem(STORAGE.progress);
+  localStorage.removeItem(STORAGE.parseMeta);
   state.sources = hydrateSources([]);
   state.library = seedFromSources(state.sources);
   state.progress = {};
+  state.parseMeta = {};
   state.session = null;
   sortLibrary();
   rebuildIndex();
   saveSourcesJson();
   saveLibrary();
   saveProgress();
+  saveParseMeta();
   clearQuestionForm();
   renderAll();
-  setBulkMsg("All data reset.");
+  setBulkMsg("All data reset. Checking whether PDFs need parsing...");
+  void autoParseSourcesIfNeeded("reset");
 }
 
 function seedFromSources(sources) {
@@ -1479,6 +1675,28 @@ function hydrateProgress(input) {
       lastResult: r?.lastResult === "correct" ? "correct" : r?.lastResult === "wrong" ? "wrong" : "unattempted",
       lastAnswer: String(r?.lastAnswer || ""),
       updatedAt: String(r?.updatedAt || "")
+    };
+  }
+  return out;
+}
+
+function hydrateParseMeta(input) {
+  const out = {};
+  if (!input || typeof input !== "object") return out;
+  for (const [sourceId, meta] of Object.entries(input)) {
+    if (!meta || typeof meta !== "object") continue;
+    out[sourceId] = {
+      path: String(meta.path || ""),
+      normalizedPath: String(meta.normalizedPath || ""),
+      subject: meta.subject === "math" ? "math" : "english",
+      pageCount: clampInt(meta.pageCount, 1, Number.MAX_SAFE_INTEGER, 1),
+      lastModified: String(meta.lastModified || ""),
+      contentLength: String(meta.contentLength || ""),
+      etag: String(meta.etag || ""),
+      fingerprint: String(meta.fingerprint || ""),
+      numPages: meta.numPages == null ? null : clampInt(meta.numPages, 1, Number.MAX_SAFE_INTEGER, null),
+      questionCount: clampInt(meta.questionCount, 0, Number.MAX_SAFE_INTEGER, 0),
+      parsedAt: String(meta.parsedAt || "")
     };
   }
   return out;
