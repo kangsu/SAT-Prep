@@ -77,21 +77,22 @@ function init() {
   loadState();
   wireEvents();
   renderAll();
+  void renderBuildStamp();
   void autoParseSourcesIfNeeded("startup");
 }
 
 function bindUi() {
   const ids = [
-    "stat-total-questions", "stat-attempted", "stat-accuracy",
-    "session-form", "session-subject", "session-status", "session-domain", "session-skill", "session-count", "type-checkboxes", "session-message",
+    "build-stamp", "stat-total-questions", "stat-attempted", "stat-accuracy",
+    "session-form", "session-subject", "session-status", "session-domain", "session-skill", "session-count", "session-message",
     "question-card", "question-counter", "question-title", "question-tags", "prompt-view",
     "choice-list", "free-answer", "submit-answer-btn", "mark-correct-btn", "mark-wrong-btn",
     "reveal-answer-btn", "next-question-btn", "feedback", "hint-line", "answer-panel",
     "library-search", "library-status-filter", "library-body", "library-footnote",
     "question-form", "form-question-id", "form-subject", "form-source", "form-start-page", "form-end-page",
-    "form-domain", "form-skill", "form-types", "form-choices", "form-correct-answer", "form-hint", "form-answer", "form-notes",
+    "form-domain", "form-skill", "form-choices", "form-correct-answer", "form-hint", "form-answer", "form-notes",
     "form-active", "clear-form-btn",
-    "bulk-form", "bulk-source", "bulk-start", "bulk-end", "bulk-subject", "bulk-types", "bulk-apply-tags-btn", "parse-pdf-btn", "bulk-message",
+    "bulk-form", "bulk-source", "bulk-start", "bulk-end", "bulk-subject", "bulk-apply-tags-btn", "parse-pdf-btn", "bulk-message",
     "source-form", "source-list",
     "export-btn", "import-input", "reset-progress-btn", "reset-all-btn",
     "progress-attempted", "progress-correct", "progress-incorrect", "progress-review", "progress-body",
@@ -151,12 +152,38 @@ function loadState() {
 function renderAll() {
   renderSourceSelects();
   renderSourceEditor();
-  renderTypeFilter();
   renderDomainSkillFilters();
   renderLibraryTable();
   renderProgress();
   renderStats();
   renderCurrentQuestion();
+}
+
+async function renderBuildStamp() {
+  if (!ui.buildStamp) return;
+  const candidates = [];
+  for (const path of ["index.html", "app.js", "styles.css"]) {
+    const headers = await readAssetHeaders(path);
+    const parsed = Date.parse(headers.lastModified || "");
+    if (Number.isFinite(parsed) && parsed > 0) {
+      candidates.push({ path, timestamp: parsed });
+    }
+  }
+
+  const fallback = Date.parse(document.lastModified || "");
+  if (Number.isFinite(fallback) && fallback > 0) {
+    candidates.push({ path: "document", timestamp: fallback });
+  }
+
+  if (!candidates.length) {
+    ui.buildStamp.textContent = "Build: unavailable";
+    return;
+  }
+
+  const latest = candidates.reduce((best, current) => current.timestamp > best.timestamp ? current : best);
+  const stamp = new Date(latest.timestamp);
+  ui.buildStamp.textContent = `Build: ${formatBuildStamp(stamp)}`;
+  ui.buildStamp.title = `Latest deployed asset update: ${latest.path}`;
 }
 
 function saveSourcesJson() { localStorage.setItem(STORAGE.sources, JSON.stringify(state.sources)); }
@@ -217,25 +244,6 @@ function renderSourceEditor() {
         </select>
       </label>`;
     ui.sourceList.appendChild(box);
-  }
-}
-
-function renderTypeFilter() {
-  const checked = new Set([...ui.typeCheckboxes.querySelectorAll("input:checked")].map((i) => i.value));
-  const tags = [...new Set(state.library.flatMap((q) => q.types))].sort();
-  ui.typeCheckboxes.innerHTML = "";
-  if (!tags.length) {
-    ui.typeCheckboxes.textContent = "No type tags saved yet.";
-    return;
-  }
-  for (const tag of tags) {
-    const label = document.createElement("label");
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.value = tag;
-    input.checked = checked.has(tag);
-    label.append(input, document.createTextNode(tag));
-    ui.typeCheckboxes.appendChild(label);
   }
 }
 
@@ -305,21 +313,18 @@ function startSession(event) {
   const domain = ui.sessionDomain.value;
   const skill = ui.sessionSkill.value;
   const count = clampInt(ui.sessionCount.value, 1, 100, 10);
-  const tags = [...ui.typeCheckboxes.querySelectorAll("input:checked")].map((i) => i.value);
   const pool = state.library.filter((q) => {
     if (!q.active) return false;
     if (subject !== "all" && q.subject !== subject) return false;
     if (!matchesDomainFilter(q, domain)) return false;
     if (!matchesSkillFilter(q, skill)) return false;
-    if (tags.length && !tags.some((tag) => q.types.includes(tag))) return false;
-    return matchesStatus(q.id, status);
+    return matchesStatus(q, status);
   });
   if (!pool.length) {
     const basePool = state.library.filter((q) => {
       if (!q.active) return false;
       if (subject !== "all" && q.subject !== subject) return false;
-      if (tags.length && !tags.some((tag) => q.types.includes(tag))) return false;
-      return matchesStatus(q.id, status);
+      return matchesStatus(q, status);
     });
     const domainTagged = basePool.filter((q) => Boolean(questionDomain(q))).length;
     const skillTagged = basePool.filter((q) => Boolean(String(q.skill || "").trim())).length;
@@ -332,8 +337,9 @@ function startSession(event) {
     renderCurrentQuestion();
     return;
   }
-  shuffle(pool);
-  const ids = pool.slice(0, Math.min(count, pool.length)).map((q) => q.id);
+  const randomized = [...pool];
+  shuffle(randomized);
+  const ids = randomized.slice(0, Math.min(count, randomized.length)).map((q) => q.id);
   state.session = { ids, idx: 0, graded: {}, submitted: {}, correct: 0, wrong: 0 };
   ui.sessionMessage.textContent = `Session started with ${ids.length} questions.`;
   renderCurrentQuestion();
@@ -365,10 +371,9 @@ function renderCurrentQuestion() {
   ui.questionTitle.textContent = `${capitalize(q.subject)} | ${sourceLabel(q.sourceId)} | ${pageLabel}`;
 
   ui.questionTags.innerHTML = "";
-  for (const tag of q.types) ui.questionTags.appendChild(makeChip(tag));
   if (q.domain) ui.questionTags.appendChild(makeChip(`domain: ${q.domain}`));
   if (q.skill) ui.questionTags.appendChild(makeChip(`skill: ${q.skill}`));
-  ui.questionTags.appendChild(makeChip(`status: ${statusText(questionStatus(q.id))}`));
+  ui.questionTags.appendChild(makeChip(`status: ${statusText(questionStatus(q))}`));
 
   renderPrompt(q);
   renderChoices(q);
@@ -711,15 +716,51 @@ function trackAttempt(id, result, answer) {
   state.progress[id] = rec;
 }
 
-function questionStatus(id) {
-  const rec = state.progress[id];
+function questionProgressKey(question) {
+  if (!question) return "";
+  const startPage = question.startPage || question.page;
+  if (!question.sourceId || !Number.isFinite(startPage)) return "";
+  return `${question.sourceId}::${startPage}`;
+}
+
+function progressKeyFromQuestionId(id) {
+  const match = String(id || "").match(/^(.*)-p(\d+)(?:-\d+)?$/);
+  if (!match) return "";
+  return `${match[1]}::${Number.parseInt(match[2], 10)}`;
+}
+
+function progressRecordForQuestion(questionOrId) {
+  const question = typeof questionOrId === "string" ? state.index.get(questionOrId) : questionOrId;
+  const directId = question?.id || (typeof questionOrId === "string" ? questionOrId : "");
+  const direct = state.progress[directId];
+  if (direct?.attempts) return direct;
+
+  const targetKey = question ? questionProgressKey(question) : progressKeyFromQuestionId(questionOrId);
+  if (!targetKey) return direct || null;
+
+  let bestRecord = null;
+  let bestUpdatedAt = 0;
+  for (const [candidateId, record] of Object.entries(state.progress)) {
+    if (!record?.attempts) continue;
+    if (progressKeyFromQuestionId(candidateId) !== targetKey) continue;
+    const updatedAt = Date.parse(record.updatedAt || "") || 0;
+    if (!bestRecord || updatedAt >= bestUpdatedAt) {
+      bestRecord = record;
+      bestUpdatedAt = updatedAt;
+    }
+  }
+  return bestRecord;
+}
+
+function questionStatus(questionOrId) {
+  const rec = progressRecordForQuestion(questionOrId);
   if (!rec?.attempts) return "unattempted";
   return rec.lastResult === "correct" ? "correct" : "incorrect";
 }
 
-function matchesStatus(id, filter) {
+function matchesStatus(questionOrId, filter) {
   if (filter === "all") return true;
-  const rec = state.progress[id];
+  const rec = progressRecordForQuestion(questionOrId);
   if (!rec?.attempts) return filter === "unattempted";
   if (filter === "correct") return rec.lastResult === "correct";
   if (filter === "incorrect") return rec.lastResult === "wrong";
@@ -731,25 +772,25 @@ function renderLibraryTable() {
   const q = ui.librarySearch.value.trim().toLowerCase();
   const status = ui.libraryStatusFilter.value;
   const filtered = state.library.filter((item) => {
-    if (!matchesStatus(item.id, status)) return false;
+    if (!matchesStatus(item, status)) return false;
     if (!q) return true;
-    const hay = [item.id, item.subject, sourceLabel(item.sourceId), item.startPage || item.page, item.endPage || item.page, item.domain || "", item.skill || "", item.types.join(" ")].join(" ").toLowerCase();
+    const hay = [item.id, item.subject, sourceLabel(item.sourceId), item.startPage || item.page, item.endPage || item.page, item.domain || "", item.skill || ""].join(" ").toLowerCase();
     return hay.includes(q);
   });
 
   ui.libraryBody.innerHTML = "";
   const shown = filtered.slice(0, 300);
   for (const item of shown) {
+    const record = progressRecordForQuestion(item);
     const tr = document.createElement("tr");
     tr.append(
       td(item.id),
       td(capitalize(item.subject)),
       td(sourceInfoText(item)),
-      td(item.types.join(", ")),
       td(item.domain || "n/a"),
       td(item.skill || "n/a"),
-      td(statusText(questionStatus(item.id))),
-      td(String(state.progress[item.id]?.attempts || 0))
+      td(statusText(questionStatus(item))),
+      td(String(record?.attempts || 0))
     );
 
     const activeTd = document.createElement("td");
@@ -775,7 +816,7 @@ function renderLibraryTable() {
   if (!shown.length) {
     const tr = document.createElement("tr");
     const one = document.createElement("td");
-    one.colSpan = 10;
+    one.colSpan = 9;
     one.textContent = "No questions match this filter.";
     tr.appendChild(one);
     ui.libraryBody.appendChild(tr);
@@ -797,7 +838,6 @@ function onLibraryClick(event) {
   ui.formEndPage.value = String(item.endPage || item.page);
   ui.formDomain.value = item.domain || "";
   ui.formSkill.value = item.skill || "";
-  ui.formTypes.value = item.types.join(", ");
   ui.formChoices.value = item.choices.join("\n");
   ui.formCorrectAnswer.value = item.correctAnswer;
   ui.formHint.value = item.hint;
@@ -825,7 +865,6 @@ function clearQuestionForm() {
   ui.formEndPage.value = "1";
   ui.formDomain.value = "";
   ui.formSkill.value = "";
-  ui.formTypes.value = "";
   ui.formChoices.value = "";
   ui.formCorrectAnswer.value = "";
   ui.formHint.value = "";
@@ -852,7 +891,6 @@ function saveQuestion(event) {
     endPage,
     domain: ui.formDomain.value.trim(),
     skill: ui.formSkill.value.trim(),
-    types: tags(ui.formTypes.value).length ? tags(ui.formTypes.value) : ["mixed"],
     choices: lines(ui.formChoices.value),
     correctAnswer: ui.formCorrectAnswer.value.trim(),
     hint: ui.formHint.value.trim(),
@@ -875,7 +913,6 @@ function saveQuestion(event) {
   sortLibrary();
   rebuildIndex();
   saveLibrary();
-  renderTypeFilter();
   renderDomainSkillFilters();
   renderLibraryTable();
   renderStats();
@@ -887,7 +924,6 @@ function bulkCreate(event) {
   const start = clampInt(ui.bulkStart.value, 1, Number.MAX_SAFE_INTEGER, 1);
   const end = clampInt(ui.bulkEnd.value, start, Number.MAX_SAFE_INTEGER, start);
   const subject = ui.bulkSubject.value === "math" ? "math" : "english";
-  const typeTags = tags(ui.bulkTypes.value).length ? tags(ui.bulkTypes.value) : ["mixed"];
   const now = new Date().toISOString();
   let created = 0;
   let skipped = 0;
@@ -904,7 +940,7 @@ function bulkCreate(event) {
       endPage: page,
       domain: "",
       skill: "",
-      types: [...typeTags], choices: [], correctAnswer: "", hint: "", answer: "",
+      types: [], choices: [], correctAnswer: "", hint: "", answer: "",
       notes: "Created by bulk tool.", active: true, createdAt: now, updatedAt: now
     });
     created += 1;
@@ -912,7 +948,6 @@ function bulkCreate(event) {
   sortLibrary();
   rebuildIndex();
   saveLibrary();
-  renderTypeFilter();
   renderDomainSkillFilters();
   renderLibraryTable();
   renderStats();
@@ -924,17 +959,14 @@ function bulkApplyTags() {
   const start = clampInt(ui.bulkStart.value, 1, Number.MAX_SAFE_INTEGER, 1);
   const end = clampInt(ui.bulkEnd.value, start, Number.MAX_SAFE_INTEGER, start);
   const subject = ui.bulkSubject.value === "math" ? "math" : "english";
-  const typeTags = tags(ui.bulkTypes.value);
   let updated = 0;
   for (const q of state.library) {
     if (q.sourceId !== sourceId || q.page < start || q.page > end) continue;
     q.subject = subject;
-    if (typeTags.length) q.types = uniq([...q.types, ...typeTags]);
     q.updatedAt = new Date().toISOString();
     updated += 1;
   }
   saveLibrary();
-  renderTypeFilter();
   renderDomainSkillFilters();
   renderLibraryTable();
   setBulkMsg(`Updated ${updated} questions in range.`);
@@ -1283,7 +1315,7 @@ function mergeParsedQuestions(parsedQuestions) {
       questionNumber: parsed.questionNumber,
       domain: parsed.domain || existing?.domain || "",
       skill: parsed.skill || existing?.skill || "",
-      types: existing?.types?.length ? existing.types : ["mixed"],
+      types: existing?.types?.length ? sanitizeQuestionTypes(existing.types) : [],
       choices: existing?.choices || [],
       correctAnswer: existing?.correctAnswer || "",
       hint: existing?.hint || "",
@@ -1315,7 +1347,6 @@ function sourceLooksSeeded(source, questions) {
       && q.questionNumber == null
       && !q.domain
       && !q.skill
-      && q.types.includes("auto-imported")
       && /auto-imported from pdf page/i.test(q.notes || "");
   });
 }
@@ -1360,7 +1391,7 @@ async function readSourceSignature(source, options = {}) {
   }
 
   if (normalizedPath && (!signature.lastModified && !signature.contentLength && !signature.etag)) {
-    const headers = await readPdfHeaders(normalizedPath);
+    const headers = await readAssetHeaders(normalizedPath);
     signature.lastModified = headers.lastModified || "";
     signature.contentLength = headers.contentLength || "";
     signature.etag = headers.etag || "";
@@ -1379,7 +1410,7 @@ async function readSourceSignature(source, options = {}) {
   return signature;
 }
 
-async function readPdfHeaders(path) {
+async function readAssetHeaders(path) {
   if (!window.fetch) return {};
   try {
     const response = await fetch(path, { method: "HEAD", cache: "no-store" });
@@ -1607,12 +1638,12 @@ function seedFromSources(sources) {
         questionNumber: null,
         domain: "",
         skill: "",
-        types: ["mixed", "auto-imported"],
+        types: [],
         choices: [],
         correctAnswer: "",
         hint: "",
         answer: "",
-        notes: "Auto-imported from PDF page. Add answer and tags in the editor.",
+        notes: "Auto-imported from PDF page. Add answer and metadata in the editor.",
         active: true,
         createdAt: now,
         updatedAt: now
@@ -1652,7 +1683,7 @@ function hydrateLibrary(input) {
     questionNumber: q.questionNumber == null ? null : clampInt(q.questionNumber, 1, Number.MAX_SAFE_INTEGER, null),
     domain: String(q.domain || ""),
     skill: String(q.skill || ""),
-    types: tags(q.types),
+    types: sanitizeQuestionTypes(q.types),
     choices: lines(q.choices),
     correctAnswer: String(q.correctAnswer || ""),
     hint: String(q.hint || ""),
@@ -1735,6 +1766,7 @@ function baseId(sourceId, page) { return `${sourceId}-p${String(page).padStart(3
 function uniqueId(base) { if (!state.index.has(base)) return base; let n = 2; while (state.index.has(`${base}-${n}`)) n += 1; return `${base}-${n}`; }
 function nextUniqueId(base, used) { if (!used.has(base)) { used.add(base); return base; } let n = 2; while (used.has(`${base}-${n}`)) n += 1; used.add(`${base}-${n}`); return `${base}-${n}`; }
 function tags(v) { return uniq((Array.isArray(v) ? v : String(v || "").split(",")).map((x) => String(x).trim().toLowerCase()).filter(Boolean)); }
+function sanitizeQuestionTypes(v) { return tags(v).filter((tag) => tag !== "mixed" && tag !== "auto-imported"); }
 function lines(v) { return (Array.isArray(v) ? v : String(v || "").split(/\r?\n/)).map((x) => String(x).trim()).filter(Boolean); }
 function uniq(arr) { return [...new Set(arr.map((x) => String(x).trim()).filter(Boolean))]; }
 function uniqKeepCase(arr) {
@@ -1761,6 +1793,16 @@ function clampNumber(v, min, max) { const n = Number(v); if (!Number.isFinite(n)
 function setBulkMsg(text) { ui.bulkMessage.textContent = text; }
 function shuffle(arr) { for (let i = arr.length - 1; i > 0; i -= 1) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } }
 function formatDate(v) { const d = new Date(v || ""); return Number.isNaN(d.getTime()) ? "n/a" : d.toLocaleString(); }
+function formatBuildStamp(date) {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short"
+  }).format(date);
+}
 function stamp() { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`; }
 function ensurePdfJs() {
   const lib = window.pdfjsLib;

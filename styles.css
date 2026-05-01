@@ -68,7 +68,17 @@ body {
 }
 
 .hero {
+  position: relative;
   padding: 1.3rem 1.6rem;
+}
+
+.build-stamp {
+  position: absolute;
+  top: 1rem;
+  right: 1.2rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-align: right;
 }
 
 .eyebrow {
@@ -148,7 +158,6 @@ h3 {
   grid-template-columns: repeat(3, minmax(180px, 1fr));
 }
 
-.session-form .type-selector,
 .session-form button {
   grid-column: 1 / -1;
 }
@@ -177,30 +186,6 @@ select:focus,
 textarea:focus {
   outline: 2px solid #f0b99f;
   outline-offset: 1px;
-}
-
-fieldset {
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  padding: 0.65rem 0.7rem;
-}
-
-legend {
-  font-size: 0.84rem;
-  color: var(--muted);
-  padding: 0 0.35rem;
-}
-
-.type-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
-  gap: 0.45rem 0.6rem;
-}
-
-.type-grid label {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.4rem;
 }
 
 .btn {
@@ -329,12 +314,13 @@ legend {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(180deg, rgba(255, 252, 246, 0.93) 0%, rgba(255, 251, 243, 0.98) 24%, rgba(255, 251, 243, 0.995) 100%);
+  background: #fffbf3;
   border-top: 1px solid #dfd1bc;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 0.6rem 0.5rem;
+  opacity: 1;
 }
 
 .answer-mask span {
@@ -590,6 +576,12 @@ tbody tr:nth-child(2n) {
   .app-shell {
     width: min(1280px, 96vw);
     margin-top: 1.2rem;
+  }
+
+  .build-stamp {
+    position: static;
+    margin: 0 0 0.4rem;
+    text-align: left;
   }
 
   .session-form {

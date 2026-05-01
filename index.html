@@ -15,10 +15,11 @@
 
   <main class="app-shell">
     <header class="hero">
+      <div id="build-stamp" class="build-stamp">Build: checking...</div>
       <p class="eyebrow">SAT Prep Workspace</p>
       <h1>SAT Practice Studio</h1>
       <p class="hero-copy">
-        Practice by question type, track right/wrong history, and keep progress saved in your browser.
+        Practice by subject, domain, and skill, track right/wrong history, and keep progress saved in your browser.
       </p>
       <div class="stat-row">
         <div class="stat-pill"><span id="stat-total-questions">0</span> questions</div>
@@ -30,7 +31,7 @@
     <section class="panel">
       <div class="panel-head">
         <h2>Practice Session</h2>
-        <p>Choose subject, tags, and how many questions to run.</p>
+        <p>Choose subject, status, and how many questions to run.</p>
       </div>
 
       <form id="session-form" class="session-form">
@@ -72,11 +73,6 @@
           Question Count
           <input id="session-count" name="count" type="number" value="10" min="1" max="100">
         </label>
-
-        <fieldset class="type-selector">
-          <legend>Question Types</legend>
-          <div id="type-checkboxes" class="type-grid"></div>
-        </fieldset>
 
         <button class="btn btn-primary" type="submit">Start Session</button>
       </form>
@@ -215,11 +211,11 @@
           <section class="panel-sub">
             <div class="panel-head">
               <h3>Question Library</h3>
-              <p>Edit metadata, answers, hints, and types.</p>
+              <p>Edit metadata, answers, hints, domains, and skills.</p>
             </div>
 
             <div class="toolbar">
-              <input id="library-search" type="search" placeholder="Search by id, type, source, or page">
+              <input id="library-search" type="search" placeholder="Search by id, source, page, domain, or skill">
               <select id="library-status-filter">
                 <option value="all">All statuses</option>
                 <option value="unattempted">Unattempted</option>
@@ -236,7 +232,6 @@
                     <th>ID</th>
                     <th>Subject</th>
                     <th>Source</th>
-                    <th>Types</th>
                     <th>Domain</th>
                     <th>Skill</th>
                     <th>Status</th>
@@ -255,7 +250,7 @@
             <div>
               <div class="panel-head compact">
                 <h3>Edit Question</h3>
-                <p>Set answer keys, hints, type tags, domain, and skill.</p>
+                <p>Set answer keys, hints, domain, and skill.</p>
               </div>
               <form id="question-form" class="stack-form">
                 <input id="form-question-id" type="hidden">
@@ -290,11 +285,6 @@
                 <label>
                   Skill
                   <input id="form-skill" type="text" placeholder="e.g., Form, Structure, and Sense">
-                </label>
-
-                <label>
-                  Type Tags (comma-separated)
-                  <input id="form-types" type="text" placeholder="e.g., algebra, word-problem, no-calculator">
                 </label>
 
                 <label>
@@ -337,7 +327,7 @@
             <div>
               <div class="panel-head compact">
                 <h3>Bulk Tools</h3>
-                <p>Create questions by page range and set source paths.</p>
+                <p>Create questions by page range, update subjects, and set source paths.</p>
               </div>
 
               <form id="bulk-form" class="stack-form">
@@ -360,13 +350,9 @@
                     <option value="math">Math</option>
                   </select>
                 </label>
-                <label>
-                  Type Tags (comma-separated)
-                  <input id="bulk-types" type="text" value="mixed">
-                </label>
                 <div class="action-row">
                   <button class="btn btn-primary" type="submit">Create Missing Questions</button>
-                  <button id="bulk-apply-tags-btn" class="btn" type="button">Apply Tags To Range</button>
+                  <button id="bulk-apply-tags-btn" class="btn" type="button">Apply Subject To Range</button>
                 </div>
               </form>
               <div class="action-row">

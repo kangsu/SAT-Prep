@@ -6,7 +6,7 @@ Local web app for practicing SAT questions from PDF pages, with persistent right
 
 - Builds practice sessions by:
   - Subject (`English`, `Math`, or both)
-  - Type tags (for example: `algebra`, `grammar`, `rhetorical`)
+  - Domain and skill
   - Status (`unattempted`, `wrong`, `right`, `ever wrong`)
   - Number of questions
 - Shows each question from a PDF page in the app.
@@ -14,7 +14,7 @@ Local web app for practicing SAT questions from PDF pages, with persistent right
 - Supports self-grading when no answer key is saved.
 - Tracks attempts, correct, wrong, and last result.
 - Saves everything in browser local storage so progress stays between sessions.
-- Includes bulk tools to create question entries by page range and assign tags.
+- Includes bulk tools to create question entries by page range and update subjects.
 
 ## Setup
 
@@ -36,8 +36,8 @@ If your files are somewhere else, update them in the **PDF Sources** section of 
 ## First-Run Notes
 
 - The app auto-seeds one question entry per PDF page (using the default page counts).
-- These start with generic tags (`mixed`, `auto-imported`) and no answer keys.
-- Use **Bulk Tools** and **Edit Question** to add real tags/answers/hints.
+- These start without answer keys.
+- Use **Bulk Tools** and **Edit Question** to add answers, hints, domain, and skill.
 - The app automatically parses PDFs when it has no parse record yet, sees unparsed page entries, or detects that a saved PDF source changed.
 - Click **Parse PDFs For Domain/Skill + Ranges** in **Bulk Tools** only when you want to force a full reparse.
 - PDF parsing detects:
